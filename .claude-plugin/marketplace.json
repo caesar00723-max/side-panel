@@ -1,0 +1,15 @@
+{
+  "name": "side-panel",
+  "owner": { "name": "caesar00723-max" },
+  "metadata": {
+    "description": "Right-hand pane for Claude Code: questions on top, the files and pages they produced below",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "side-panel",
+      "source": "./",
+      "description": "Right-hand pane at one third of the screen: your questions on top, the files and pages they produced below"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "description": "Right-hand pane: your questions above, the files and pages they produced below",
+  "modules": ["./register.tsx"]
+}
