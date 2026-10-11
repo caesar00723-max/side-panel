@@ -1,6 +1,6 @@
 {
   "name": "side-panel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Right-hand pane at one third of the screen: your questions on top, the files and pages they produced below",
   "author": { "name": "caesar00723-max" },
   "homepage": "https://github.com/caesar00723-max/side-panel",
