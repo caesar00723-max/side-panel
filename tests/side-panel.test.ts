@@ -259,6 +259,33 @@ test('LEFT lists every window the account reports, a model\'s own one by the mod
   await ui.unmount()
 })
 
+test('MODEL shows how full the context window is, and follows each measurement', async ($, on) => {
+  stubEngine(on)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('session.model', () => ({ value: 'claude-opus-5-5' }) as never)
+  on('settings.read', () => ({ value: {} }) as never)
+  // A fresh session: the window is known, its fill not yet
+  on('session.usage', () => ({ value: { rateLimits: [], context: { window: 200_000 } } }) as never)
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '' } }) as never)
+  on('session.id', () => ({ value: 'self-id' }) as never)
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.measure', ($, e) => ({ changed: e.changed }))
+
+  await $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true } as never)
+  const ui = await $.ui.mount({ plugin: 'side-panel', surface: 'terminal', ...PANE })
+  expect(await ui.find({ type: 'Text', text: /ctx —/ })).toBeDefined()
+  await ui.unmount()
+
+  await $.session.measure({
+    context: { tokens: 84_000, window: 200_000, percent: 42 },
+    rateLimits: [],
+    changed: ['context'],
+  } as never)
+  const after = await $.ui.mount({ plugin: 'side-panel', surface: 'terminal', ...PANE })
+  expect(await after.find({ type: 'Text', text: /ctx 42% \(84k\/200k\)/ })).toBeDefined()
+  await after.unmount()
+})
+
 test('The top box names the working folder, only its last folder when the path is too long', async ($, on) => {
   let cwd = 'C:/work'
   on('ui.open', () => ({ value: { isPlaced: true } }))

@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type {
   AskItem,
+  ContextView,
   InfoView,
   LimitView,
   OutputItem,
@@ -99,6 +100,7 @@ const info = atom({ plugin: 'side-panel', key: 'info' } as const, {
   model: '',
   effort: '',
   limits: [],
+  context: { window: 0 },
 } as InfoView)
 
 // Short model name: claude-opus-5-5 -> opus-5-5
@@ -126,6 +128,14 @@ const toLimits = (list: readonly LimitView[]): LimitView[] =>
 
 const remainColor = (left: number): string =>
   left <= 10 ? PALETTE.status.error : left <= 30 ? PALETTE.peach : PALETTE.mint
+
+// Only the status line's figures; the engine's object may carry more
+const toContext = (context: ContextView | undefined): ContextView | undefined =>
+  context === undefined ? undefined : { tokens: context.tokens, window: context.window, percent: context.percent }
+
+// Token count, as 84k or 1M
+const tokensLabel = (n: number): string =>
+  n >= 1_000_000 ? Math.round(n / 100_000) / 10 + 'M' : Math.round(n / 1000) + 'k'
 
 // Collapse whitespace and cut to a length so a long prompt fits one line
 const brief = (text: string, max: number): string => {
@@ -462,6 +472,7 @@ export const register: Register = on => {
         model: model || view.model,
         effort: view.effort || (typeof settings.effortLevel === 'string' ? settings.effortLevel : ''),
         limits: usage.rateLimits.length > 0 ? toLimits(usage.rateLimits) : view.limits,
+        context: toContext(usage.context) ?? view.context,
       }))
     } catch {}
 
@@ -513,6 +524,11 @@ export const register: Register = on => {
     if (e.changed.includes('rateLimits')) {
       try {
         await update($, info, view => ({ ...view, limits: toLimits(e.rateLimits) }))
+      } catch {}
+    }
+    if (e.changed.includes('context')) {
+      try {
+        await update($, info, view => ({ ...view, context: toContext(e.context) ?? view.context }))
       } catch {}
     }
 
@@ -677,6 +693,22 @@ export const register: Register = on => {
             <Text color={PALETTE.yellow}> {meta.model !== '' ? shortModel(meta.model) : '—'}</Text>
             <Text color={PALETTE.text}> · effort </Text>
             <Text color={PALETTE.yellow}>{meta.effort !== '' ? meta.effort : '—'}</Text>
+            <Text color={PALETTE.text}> · ctx </Text>
+            {meta.context.percent === undefined ? (
+              <Text color={PALETTE.text}>—</Text>
+            ) : (
+              <Text>
+                <Text bold color={remainColor(100 - meta.context.percent)}>
+                  {meta.context.percent}%
+                </Text>
+                {meta.context.tokens !== undefined && meta.context.window > 0 && (
+                  <Text color={PALETTE.text}>
+                    {' '}
+                    ({tokensLabel(meta.context.tokens)}/{tokensLabel(meta.context.window)})
+                  </Text>
+                )}
+              </Text>
+            )}
           </Text>
           <Text wrap="truncate-end">
             <Text bold color={PALETTE.lavender}>

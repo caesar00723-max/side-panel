@@ -61,10 +61,18 @@ export type LimitView = {
   resetsAt?: string
 }
 
+// The live context window; tokens and percent are absent until a response of the window reports them
+export type ContextView = {
+  tokens?: number
+  window: number
+  percent?: number
+}
+
 export type InfoView = {
   model: string
   effort: string
   limits: LimitView[]
+  context: ContextView
 }
 
 declare module 'claude-code' {
