@@ -183,6 +183,64 @@ const addOutput = (list: OutputItem[], item: OutputItem): OutputItem[] => {
   return [...list.filter(one => one.key !== item.key), { ...item, kind }].slice(-MAX_OUTPUTS)
 }
 
+// Shell tools write files without naming them; what they left is read back from git
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell'])
+// At most this many files from one shell call, documents first
+const MAX_SHELL_OUTPUTS = 12
+// A file counts as the call's own when written no earlier than this before it started
+const MTIME_SLACK_MS = 2_000
+const SKIP_PATH = /(^|\/)(\.git|node_modules|__pycache__|\.venv)\//
+const DOC_FILE = /\.(md|html?|txt|csv|xlsx|pdf|json)$/i
+
+const git = async ($: EngineInterface, root: string, args: string[]): Promise<string | undefined> => {
+  const { exitCode, stdout } = await $.process.run(['git', '-C', root, '-c', 'core.quotePath=false', ...args], {
+    timeoutMs: 5_000,
+  })
+  return exitCode === 0 ? stdout : undefined
+}
+
+// Files a shell call left in the session's git repository: dirty or untracked ones it wrote,
+// and the ones a commit it made carried. Outside a repository it finds nothing
+const shellOutputs = async (
+  $: EngineInterface,
+  since: number,
+): Promise<{ key: string; kind: OutputItem['kind'] }[]> => {
+  const top = (await git($, await $.session.cwd(), ['rev-parse', '--show-toplevel']))?.trim()
+  if (!top) return []
+  const kinds = new Map<string, OutputItem['kind']>()
+  // `XY path` entries, NUL separated
+  for (const entry of ((await git($, top, ['status', '--porcelain', '-z', '-uall', '--no-renames'])) ?? '').split('\0')) {
+    if (entry.length < 4 || entry[0] === 'D' || entry[1] === 'D') continue
+    kinds.set(entry.slice(3), entry.startsWith('??') || entry[0] === 'A' ? 'create' : 'edit')
+  }
+  // `status \0 path \0` pairs of the commits made since the call started
+  const sinceSecs = Math.floor((since - MTIME_SLACK_MS) / 1000)
+  const log = (await git($, top, ['log', `--since=@${sinceSecs}`, '--name-status', '--no-renames', '-z', '--format=']))
+    ?.split('\0')
+    .map(token => token.trim())
+  for (let i = 0; log && i < log.length - 1; i++) {
+    const status = log[i]
+    if (!/^[AMT]$/.test(status ?? '')) continue
+    const path = log[++i] ?? ''
+    if (path !== '' && !kinds.has(path)) kinds.set(path, status === 'A' ? 'create' : 'edit')
+  }
+
+  const isWindows = /^[A-Za-z]:\//.test(top)
+  const found: { key: string; kind: OutputItem['kind']; mtimeMs: number }[] = []
+  for (const [path, kind] of kinds) {
+    if (SKIP_PATH.test(path)) continue
+    const full = top + '/' + path
+    const stat = await $.fs.stat(full).catch(() => undefined)
+    if (!stat || stat.kind !== 'file' || stat.mtimeMs < since - MTIME_SLACK_MS) continue
+    // The same spelling a Write reports, so one file is one row
+    found.push({ key: isWindows ? full.replace(/\//g, '\\') : full, kind, mtimeMs: stat.mtimeMs })
+  }
+  return found
+    .sort((a, b) => Number(DOC_FILE.test(b.key)) - Number(DOC_FILE.test(a.key)) || b.mtimeMs - a.mtimeMs)
+    .slice(0, MAX_SHELL_OUTPUTS)
+    .map(({ key, kind }) => ({ key, kind }))
+}
+
 // Time since a moment, as 45s, 12m or 2h5m
 const ago = (at: number, now: number): string => {
   const secs = Math.max(0, Math.round((now - at) / 1000))
@@ -485,19 +543,23 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    const isShell = SHELL_TOOLS.has(String((e as unknown as Record<string, unknown>).tool))
+    const startedAt = isShell ? await $.clock.now().catch(() => 0) : 0
     const result = await next(e)
 
     // Recording must never change what the tool answered
     try {
       const answered = result as { deny?: string; isError?: boolean; result?: unknown }
-      if (answered.deny === undefined && answered.isError !== true) {
+      // A shell call that failed partway may still have written files
+      if (answered.deny === undefined && (isShell || answered.isError !== true)) {
         const found = outputOf(
           e as unknown as Record<string, unknown>,
           (answered.result ?? {}) as Record<string, unknown>,
         )
-        if (found) {
+        const made = found ? [found] : startedAt > 0 ? await shellOutputs($, startedAt) : []
+        if (made.length > 0) {
           const { turnId } = await read($, turn)
-          await update($, outputs, list => addOutput(list, { ...found, turnId: turnId ?? '' }))
+          for (const one of made) await update($, outputs, list => addOutput(list, { ...one, turnId: turnId ?? '' }))
         }
       }
     } catch {}

@@ -65,6 +65,40 @@ test('RESULT lists written and edited files once each, and published pages', asy
   await ui.unmount()
 })
 
+test('RESULT lists files a shell command wrote, read back from git', async ($, on) => {
+  stubEngine(on)
+  const now = Date.parse('2026-10-10T00:00:00Z')
+  on('tool.call', () => ({ result: { stdout: '', stderr: '' } }) as never)
+  on('process.run', ($, e) => {
+    const argv = (e as unknown as { argv: string[] }).argv
+    const reply = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '' } }) as never
+    if (argv.includes('rev-parse')) return reply('C:/work\n')
+    // Untracked report, a data file it changed, one changed before the call, one deleted
+    if (argv.includes('status')) return reply('?? out/report.md\0 M data.csv\0 M stale.md\0 D gone.md\0')
+    // A commit it made: a new file, and one it committed without writing
+    if (argv.includes('log')) return reply('A\0out/committed.md\0M\0older.md\0')
+    return reply('')
+  })
+  on('fs.stat', ($, e) => {
+    const path = (e as unknown as { path: string }).path
+    const mtimeMs = /stale|older/.test(path) ? now - 3_600_000 : now
+    return { value: { kind: 'file', size: 1, mtimeMs, isLink: false } } as never
+  })
+
+  const call = $.tool.call as unknown as (input: Record<string, unknown>) => Promise<unknown>
+  await call({ tool: 'Bash', command: 'python report.py && git commit -am x' })
+
+  const ui = await $.ui.mount({ plugin: 'side-panel', surface: 'terminal', ...PANE })
+  expect((await ui.find({ key: 'open:C:\\work\\out\\report.md' }))?.text).toMatch(/\+ out[\\/]report\.md/)
+  expect((await ui.find({ key: 'open:C:\\work\\out\\committed.md' }))?.text).toMatch(/\+ /)
+  expect((await ui.find({ key: 'open:C:\\work\\data.csv' }))?.text).toMatch(/✎ /)
+  // Written before the call, or deleted: not this call's output
+  expect(await ui.find({ key: 'open:C:\\work\\stale.md' })).toBeUndefined()
+  expect(await ui.find({ key: 'open:C:\\work\\older.md' })).toBeUndefined()
+  expect(await ui.find({ key: 'open:C:\\work\\gone.md' })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('RESULT previews a pressed file and opens it in Notepad', async ($, on) => {
   stubEngine(on)
   on('tool.call', ($, e) => {
