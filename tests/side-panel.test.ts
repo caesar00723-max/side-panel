@@ -57,8 +57,9 @@ test('RESULT lists written and edited files once each, and published pages', asy
   // Each file is one pressable row; created then edited stays a creation
   expect((await ui.find({ key: 'open:C:/work/a.md' }))?.text).toMatch(/\+ a\.md/)
   expect((await ui.find({ key: 'open:C:/work/b.ts' }))?.text).toMatch(/✎ b\.ts/)
-  // A page is a link to the browser
-  expect(await ui.find({ type: 'Link', text: /claude\.ai\/artifact\/abc/ })).toBeDefined()
+  // A page is a pressable row, not an OSC 8 link the terminal would also open
+  expect((await ui.find({ key: 'link:https://claude.ai/artifact/abc' }))?.text).toMatch(/↗ https:\/\/claude\.ai/)
+  expect(await ui.find({ type: 'Link' })).toBeUndefined()
   // A failed call and a read leave nothing
   expect(await ui.find({ key: 'open:C:/work/bad.md' })).toBeUndefined()
   expect(await ui.find({ key: 'open:C:/work/c.md' })).toBeUndefined()
@@ -96,6 +97,24 @@ test('RESULT lists files a shell command wrote, read back from git', async ($, o
   expect(await ui.find({ key: 'open:C:\\work\\stale.md' })).toBeUndefined()
   expect(await ui.find({ key: 'open:C:\\work\\older.md' })).toBeUndefined()
   expect(await ui.find({ key: 'open:C:\\work\\gone.md' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('A pressed page opens in the browser once', async ($, on) => {
+  stubEngine(on)
+  on('tool.call', () => ({ result: { url: 'https://claude.ai/artifact/abc?x=1&y=2' } }) as never)
+  const runs: string[][] = []
+  on('process.run', ($, e) => {
+    runs.push([...(e as unknown as { argv: string[] }).argv])
+    return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+  })
+
+  const call = $.tool.call as unknown as (input: Record<string, unknown>) => Promise<unknown>
+  await call({ tool: 'Artifact', file_path: 'C:/work/page.html' })
+
+  const ui = await $.ui.mount({ plugin: 'side-panel', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'link:https://claude.ai/artifact/abc?x=1&y=2' })
+  expect(runs).toEqual([['rundll32', 'url.dll,FileProtocolHandler', 'https://claude.ai/artifact/abc?x=1&y=2']])
   await ui.unmount()
 })
 

@@ -396,6 +396,24 @@ const openInNotepad = async ($: EngineInterface, path: string): Promise<void> =>
   }
 }
 
+// Open a page in the default browser. The row is a Button, not a Link: a Link is an OSC 8 span
+// that the terminal opens on its own as well, so one click opened the page twice.
+// rundll32 takes the URL as one argument, where `cmd /c start` would split it at an `&`
+const openInBrowser = async ($: EngineInterface, url: string): Promise<void> => {
+  if (!/^https?:\/\//i.test(url)) {
+    $.ui.toast('Not a web address: ' + url)
+    return
+  }
+  try {
+    const { exitCode, stderr } = await $.process.run(['rundll32', 'url.dll,FileProtocolHandler', url], {
+      timeoutMs: 10_000,
+    })
+    if (exitCode !== 0) $.ui.toast('Could not open the browser: ' + (stderr.trim() || 'exit ' + exitCode))
+  } catch (err) {
+    $.ui.toast('Could not open the browser: ' + String(err))
+  }
+}
+
 // The hidden sessions live in the store, shared by every terminal and kept across restarts;
 // the `hidden` state mirrors it for drawing
 const HIDDEN_KEY = 'hidden'
@@ -607,7 +625,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Link, Markdown } = $.ui.resolve(e)
+    const { Box, Text, Button, Markdown } = $.ui.resolve(e)
     const asked = await read($, questions)
     const made = await read($, outputs)
     const hiddenIds = await read($, hidden)
@@ -652,10 +670,12 @@ export const register: Register = on => {
         <Text color={dim ? PALETTE.muted : OUTPUT_MARK[item.kind].color}>{OUTPUT_MARK[item.kind].mark} </Text>
       )
       return item.kind === 'link' ? (
-        <Text wrap="truncate-middle" color={dim ? PALETTE.muted : PALETTE.text}>
+        <Button key={'link:' + item.key} plain dimColor={dim} onPress={() => void openInBrowser($, item.key)}>
           {mark}
-          <Link href={item.key}>{item.key}</Link>
-        </Text>
+          <Text wrap="truncate-middle" color={dim ? PALETTE.muted : PALETTE.blue}>
+            {item.key}
+          </Text>
+        </Button>
       ) : (
         <Button
           key={'open:' + item.key}
@@ -808,12 +828,7 @@ export const register: Register = on => {
           {asked.slice(-topLines).map(item => (
             <Button key={'q:' + item.id} plain onPress={() => void openQuestion($, item.id)}>
               <Text color={PALETTE.status[item.status]}>{QUESTION_MARK[item.status]} </Text>
-              <Text
-                color={
-                  item.id === openedId ? PALETTE.lavender : item.status === 'running' ? PALETTE.text : PALETTE.muted
-                }
-                bold={item.id === openedId}
-              >
+              <Text color={item.id === openedId ? PALETTE.lavender : PALETTE.text} bold={item.id === openedId}>
                 {item.text}
               </Text>
             </Button>
