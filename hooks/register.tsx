@@ -37,27 +37,27 @@ const SUMMARY_RULES =
   'Name files, commands and numbers when they matter. ' +
   'Plain lines only: no bullet characters, numbering, bold, headings, preamble or closing line.'
 
-// Dark-terminal palette (Catppuccin Mocha): muted borders, pastel accents
+// Theme keys, not raw colors, so the pane follows whatever theme the person picked (custom ones too)
 const PALETTE = {
-  mint: '#a6e3a1',
-  mintBorder: '#3f6b5a',
-  blue: '#89b4fa',
-  blueBorder: '#47508a',
-  lavender: '#b4befe',
-  peach: '#fab387',
-  yellow: '#f9e2af',
-  yellowBorder: '#7a6a3a',
-  infoBorder: '#45475a',
-  text: '#cdd6f4',
-  muted: '#6c7086',
+  mint: 'success',
+  mintBorder: 'success',
+  blue: 'suggestion',
+  blueBorder: 'promptBorder',
+  lavender: 'claude',
+  peach: 'warning',
+  yellow: 'warning',
+  yellowBorder: 'warning',
+  infoBorder: 'subtle',
+  text: 'text',
+  muted: 'inactive',
   // Marks this session among the others
-  red: '#f38ba8',
+  red: 'error',
   status: {
-    idle: '#6c7086',
-    running: '#f9e2af',
-    done: '#a6e3a1',
-    aborted: '#fab387',
-    error: '#f38ba8',
+    idle: 'inactive',
+    running: 'warning',
+    done: 'success',
+    aborted: 'warning',
+    error: 'error',
   },
 } as const
 
@@ -126,8 +126,8 @@ const until = (resetsAt: string | undefined, now: number): string => {
 const toLimits = (list: readonly LimitView[]): LimitView[] =>
   list.map(one => ({ kind: one.kind, percentUsed: one.percentUsed, resetsAt: one.resetsAt }))
 
-const remainColor = (left: number): string =>
-  left <= 10 ? PALETTE.status.error : left <= 30 ? PALETTE.peach : PALETTE.mint
+const remainColor = (left: number, plenty: string = PALETTE.mint): string =>
+  left <= 10 ? PALETTE.status.error : left <= 30 ? PALETTE.peach : plenty
 
 // Only the status line's figures; the engine's object may carry more
 const toContext = (context: ContextView | undefined): ContextView | undefined =>
@@ -698,7 +698,7 @@ export const register: Register = on => {
               <Text color={PALETTE.text}>—</Text>
             ) : (
               <Text>
-                <Text bold color={remainColor(100 - meta.context.percent)}>
+                <Text bold color={remainColor(100 - meta.context.percent, PALETTE.text)}>
                   {meta.context.percent}%
                 </Text>
                 {meta.context.tokens !== undefined && meta.context.window > 0 && (
