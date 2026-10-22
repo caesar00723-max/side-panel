@@ -3,7 +3,7 @@
   "owner": { "name": "caesar00723-max" },
   "metadata": {
     "description": "Right-hand pane for Claude Code: questions on top, the files and pages they produced below",
-    "version": "0.2.2"
+    "version": "0.2.3"
   },
   "plugins": [
     {
