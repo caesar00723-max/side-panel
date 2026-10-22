@@ -253,6 +253,27 @@ test('A pressed question shows its Haiku summary and scrolls back to it', async 
   await ui.unmount()
 })
 
+test('QUESTIONS leaves out turns the person did not ask: a task notice and a subagent run', async ($, on) => {
+  stubEngine(on)
+  // The engine beneath: each prompt enters, then its turn starts
+  on('prompt.submit', ($, e) => ({ text: e.text }) as never)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }) as never)
+  const submit = $.prompt.submit as unknown as (input: Record<string, unknown>) => Promise<unknown>
+  const notice = '<task-notification> <task-id>bluvno5dc</task-id> </task-notification>'
+
+  await submit({ text: '진행해', origin: { kind: 'composer' }, wait: false })
+  await $.turn.start({ turnId: 't1', text: '진행해' } as never)
+  await submit({ text: notice, origin: { kind: 'task-notification' }, wait: false })
+  await $.turn.start({ turnId: 't2', text: notice } as never)
+  await $.turn.start({ turnId: 't3', text: 'Search the repo for hooks', agentId: 'a1' } as never)
+
+  const ui = await $.ui.mount({ plugin: 'side-panel', surface: 'terminal', ...PANE })
+  expect(await ui.find({ key: 'q:t1' })).toBeDefined()
+  expect(await ui.find({ key: 'q:t2' })).toBeUndefined()
+  expect(await ui.find({ key: 'q:t3' })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('LEFT lists every window the account reports, a model\'s own one by the model name', async ($, on) => {
   stubEngine(on)
   on('command.register', () => ({ value: undefined }) as never)

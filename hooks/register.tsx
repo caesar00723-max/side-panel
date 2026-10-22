@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, PromptOrigin, Register } from 'claude-code'
 
 import type {
   AskItem,
@@ -368,6 +368,16 @@ const openQuestion = async ($: EngineInterface, id: string): Promise<void> => {
 // The transcript row last drawn for each question text
 const rowIds = new Map<string, string>()
 
+// A prompt the person sent: typed, from their phone or Slack, or a plugin's in their words
+const isAsked = (origin: PromptOrigin): boolean =>
+  origin.kind === 'composer' ||
+  origin.kind === 'bridge' ||
+  origin.kind === 'slack-ping' ||
+  (origin.kind === 'plugin' && origin.asUser === true)
+
+// Prompts that start a turn without being asked (a task's notice, a peer's message, a schedule), by text
+const unasked = new Set<string>()
+
 // Scroll the transcript to the row that shows a question
 const jumpToQuestion = async ($: EngineInterface, text: string): Promise<void> => {
   const rowId = rowIds.get(text)
@@ -509,10 +519,18 @@ export const register: Register = on => {
     return { text: 'Pane opened at ' + columns + ' columns, one third of ' + screen + '.' }
   })
 
+  on('prompt.submit', async ($, e, next) => {
+    if (!isAsked(e.origin)) unasked.add(brief(e.text, 200))
+
+    return next(e)
+  })
+
   on('turn.start', async ($, e, next) => {
+    // A subagent's run starts turns of its own; only the main loop's are the person's questions
+    if (e.agentId !== undefined) return next(e)
     await update($, turn, (): TurnView => ({ status: 'running', turnId: e.turnId, ask: NO_ASK }))
     const text = brief(e.text, 200)
-    if (text !== '') {
+    if (text !== '' && !unasked.delete(text)) {
       await update($, questions, list =>
         [...list.filter(one => one.id !== e.turnId), { id: e.turnId, text, status: 'running' as const }].slice(
           -MAX_QUESTIONS,
